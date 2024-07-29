@@ -1,0 +1,16 @@
+{
+	"endOfLine": "lf",
+	"overrides": [
+		{
+			"files": ["**/*.yml", "**/*.yaml", "**/*.css", "**/*.scss", "**/*.html"],
+			"options": {
+				"singleQuote": false
+			}
+		}
+	],
+	"semi": true,
+	"singleQuote": true,
+	"tabWidth": 2,
+	"trailingComma": "es5",
+	"useTabs": true
+}
