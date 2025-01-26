@@ -1,6 +1,6 @@
 module code.ottojs.org/tests/load-testing
 
-go 1.22
+go 1.23
 
 require github.com/tsenart/vegeta/v12 v12.11.3
 
