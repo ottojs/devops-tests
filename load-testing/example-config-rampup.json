@@ -1,32 +1,32 @@
 {
-  "duration": 30,
-  "rampUp": {
-    "startRate": 10,
-    "endRate": 500,
-    "holdDuration": 10
-  },
-  "timeout": 10,
-  "warmupDelay": 5,
-  "keepAlive": true,
-  "http2": false,
-  "redirects": 1,
-  "connectionPool": {
-    "maxConnections": 2000,
-    "maxIdleConns": 200
-  },
-  "requests": [
-    {
-      "method": "GET",
-      "url": "http://localhost:3000/test/path"
-    },
-    {
-      "method": "POST",
-      "url": "http://localhost:3000/test/body",
-      "body": "{\"name\":\"Test User\",\"email\":\"test@example.com\"}",
-      "contentType": "application/json",
-      "headers": {
-        "Authorization": "Bearer mytoken"
-      }
-    }
-  ]
+	"duration": 30,
+	"rampUp": {
+		"startRate": 10,
+		"endRate": 500,
+		"holdDuration": 10
+	},
+	"timeout": 10,
+	"warmupDelay": 5,
+	"keepAlive": true,
+	"http2": false,
+	"redirects": 1,
+	"connectionPool": {
+		"maxConnections": 2000,
+		"maxIdleConns": 200
+	},
+	"requests": [
+		{
+			"method": "GET",
+			"url": "http://localhost:3000/test/path"
+		},
+		{
+			"method": "POST",
+			"url": "http://localhost:3000/test/body",
+			"body": "{\"name\":\"Test User\",\"email\":\"test@example.com\"}",
+			"contentType": "application/json",
+			"headers": {
+				"Authorization": "Bearer mytoken"
+			}
+		}
+	]
 }
