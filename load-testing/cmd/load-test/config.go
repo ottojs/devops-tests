@@ -2,7 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -13,9 +16,10 @@ const DEFAULT_TEST_TIMEOUT time.Duration = 5 // seconds
 const DEFAULT_WARMUP_DELAY int = 15          // seconds
 
 // Safety limits to prevent DoS
-const MAX_TEST_DURATION = 1800 // 30 minutes max
-const MAX_TEST_RATE = 10000    // 10k requests/sec max
-const MAX_TEST_TIMEOUT = 30    // 30 seconds max
+const MAX_TEST_DURATION = 1800                 // 30 minutes max
+const MAX_TEST_RATE = 10000                    // 10k requests/sec max
+const MAX_TEST_TIMEOUT = 30                    // 30 seconds max
+const MAX_REQUEST_BODY_SIZE = 10 * 1024 * 1024 // 10MB max request body size
 
 // Defines a single request
 type RequestConfig struct {
@@ -39,7 +43,35 @@ type LoadTestConfig struct {
 }
 
 func loadConfigFromFile(filename string) (LoadTestConfig, error) {
-	data, err := os.ReadFile(filename)
+	// Validate and sanitize the file path
+	cleanPath := filepath.Clean(filename)
+
+	// Ensure the file has a .json extension
+	if !strings.HasSuffix(strings.ToLower(cleanPath), ".json") {
+		return LoadTestConfig{}, fmt.Errorf("config file must have a .json extension")
+	}
+
+	// Prevent directory traversal - reject paths with ".."
+	if strings.Contains(cleanPath, "..") {
+		return LoadTestConfig{}, fmt.Errorf("invalid file path: directory traversal detected")
+	}
+
+	// If it's an absolute path, ensure it's not accessing system directories
+	if filepath.IsAbs(cleanPath) {
+		// Define a list of restricted directories
+		restrictedPrefixes := []string{
+			"/etc", "/sys", "/proc", "/dev", "/var/log", "/root",
+			"/home", "/Users", "/tmp", "/private",
+		}
+
+		for _, prefix := range restrictedPrefixes {
+			if strings.HasPrefix(cleanPath, prefix) {
+				return LoadTestConfig{}, fmt.Errorf("access to system directories is not allowed")
+			}
+		}
+	}
+
+	data, err := os.ReadFile(cleanPath)
 	if err != nil {
 		return LoadTestConfig{}, err
 	}
@@ -47,6 +79,14 @@ func loadConfigFromFile(filename string) (LoadTestConfig, error) {
 	var config LoadTestConfig
 	if err := json.Unmarshal(data, &config); err != nil {
 		return LoadTestConfig{}, err
+	}
+
+	// Validate request body sizes
+	for i, req := range config.Requests {
+		if len(req.Body) > MAX_REQUEST_BODY_SIZE {
+			return LoadTestConfig{}, fmt.Errorf("request %d body size (%d bytes) exceeds maximum allowed size (%d bytes)",
+				i+1, len(req.Body), MAX_REQUEST_BODY_SIZE)
+		}
 	}
 
 	return config, nil
