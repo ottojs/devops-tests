@@ -190,11 +190,15 @@ func createRotatingTargeter(requests []RequestConfig) vegeta.Targeter {
 
 		// Set headers
 		tgt.Header = make(map[string][]string)
+
+		// Always set User-Agent
+		tgt.Header["User-Agent"] = []string{"otto-load-test"}
+
 		if req.ContentType != "" {
 			tgt.Header["Content-Type"] = []string{req.ContentType}
 		}
 
-		// Add custom headers if any
+		// Add custom headers if any (this could override User-Agent if specified)
 		for k, v := range req.Headers {
 			tgt.Header[k] = []string{v}
 		}
