@@ -9,6 +9,12 @@ import (
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
+// Exit codes
+const (
+	exitSuccess = 0
+	exitError   = 1
+)
+
 // Linearly ramps from startRate to endRate over the duration
 // If holdDuration > 0, it ramps up over (duration - holdDuration) and then holds at endRate
 func createRampUpPacer(startRate, endRate int, duration time.Duration, holdDuration time.Duration) vegeta.Pacer {
@@ -91,19 +97,19 @@ func main() {
 	if *configFile == "" {
 		fmt.Println("Error: No config file provided. Use -config flag to specify a configuration file.")
 		flag.Usage()
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 
 	loadedConfig, err := loadConfigFromFile(*configFile)
 	if err != nil {
 		fmt.Printf("Error loading config file: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 	config = loadedConfig
 	requests = config.Requests
 	if len(requests) == 0 {
 		fmt.Println("Error: No requests found in config file")
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 
 	// Validate all request URLs are approved
@@ -116,7 +122,7 @@ func main() {
 		fmt.Println("  - 172.16.0.0/12 (Class B private)")
 		fmt.Println("  - 192.168.0.0/16 (Class C private)")
 		fmt.Println("To add more domains, modify APPROVED_DOMAINS in the source code and recompile.")
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 
 	// Apply defaults for missing values
@@ -125,7 +131,7 @@ func main() {
 	// Validate limits to prevent DoS
 	if err := validateLimits(&config); err != nil {
 		fmt.Printf("Error: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 
 	duration := time.Duration(config.Duration) * time.Second

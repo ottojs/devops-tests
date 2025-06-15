@@ -83,7 +83,7 @@ func outputJSON(config LoadTestConfig, metrics vegeta.Metrics) {
 	output, err := json.MarshalIndent(results, "", "  ")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error encoding JSON: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 	fmt.Println(string(output))
 }
