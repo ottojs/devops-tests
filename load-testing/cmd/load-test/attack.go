@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"time"
 
 	vegeta "github.com/tsenart/vegeta/v12/lib"
@@ -38,6 +39,10 @@ func runAttack(config LoadTestConfig, requests []RequestConfig, jsonOutput bool)
 
 	attackerOpts = append(attackerOpts, vegeta.Timeout(time.Duration(config.Timeout)*time.Second))
 
+	// Create a custom HTTP client that removes Vegeta headers
+	client := createHeaderStrippingClient(config)
+	attackerOpts = append(attackerOpts, vegeta.Client(client))
+
 	attacker := vegeta.NewAttacker(attackerOpts...)
 
 	var metrics vegeta.Metrics
@@ -62,7 +67,7 @@ func runConstantRateAttack(attacker *vegeta.Attacker, targeter vegeta.Targeter, 
 	}
 
 	var metrics vegeta.Metrics
-	for res := range attacker.Attack(targeter, rate, duration, "Load Test") {
+	for res := range attacker.Attack(targeter, rate, duration, "") {
 		metrics.Add(res)
 	}
 
@@ -113,7 +118,7 @@ func runRampUpAttack(attacker *vegeta.Attacker, targeter vegeta.Targeter, config
 	}
 
 	var metrics vegeta.Metrics
-	for res := range attacker.Attack(targeter, pacer, duration, "Load Test") {
+	for res := range attacker.Attack(targeter, pacer, duration, "") {
 		metrics.Add(res)
 	}
 
@@ -180,4 +185,73 @@ func printAttackInfo(config LoadTestConfig) {
 	} else {
 		fmt.Printf("  Constant rate: %d req/s\n", config.Rate)
 	}
+}
+
+// headerStrippingTransport wraps http.RoundTripper to remove Vegeta headers
+type headerStrippingTransport struct {
+	base http.RoundTripper
+}
+
+func (t *headerStrippingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Remove Vegeta headers before sending the request
+	req.Header.Del("X-Vegeta-Attack")
+	req.Header.Del("X-Vegeta-Seq")
+
+	return t.base.RoundTrip(req)
+}
+
+// createHeaderStrippingClient creates an HTTP client that removes Vegeta headers
+func createHeaderStrippingClient(config LoadTestConfig) *http.Client {
+	// Create base transport with connection pooling settings
+	transport := &http.Transport{
+		MaxIdleConnsPerHost: 100,
+		DisableCompression:  false,
+		DisableKeepAlives:   false,
+	}
+
+	// Apply connection pool settings if specified
+	if config.ConnectionPool != nil {
+		if config.ConnectionPool.MaxIdleConns != nil {
+			transport.MaxIdleConns = *config.ConnectionPool.MaxIdleConns
+		}
+		if config.ConnectionPool.MaxConnections != nil {
+			transport.MaxConnsPerHost = *config.ConnectionPool.MaxConnections
+		}
+	}
+
+	// Apply keep-alive settings
+	if config.KeepAlive != nil {
+		transport.DisableKeepAlives = !*config.KeepAlive
+	}
+
+	// Apply HTTP/2 settings
+	if config.HTTP2 != nil && !*config.HTTP2 {
+		transport.ForceAttemptHTTP2 = false
+	}
+
+	// Wrap with header stripping transport
+	strippingTransport := &headerStrippingTransport{base: transport}
+
+	client := &http.Client{
+		Transport: strippingTransport,
+		Timeout:   time.Duration(config.Timeout) * time.Second,
+	}
+
+	// Apply redirect settings
+	if config.Redirects != nil {
+		if *config.Redirects == 0 {
+			client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			}
+		} else {
+			client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+				if len(via) >= *config.Redirects {
+					return http.ErrUseLastResponse
+				}
+				return nil
+			}
+		}
+	}
+
+	return client
 }
