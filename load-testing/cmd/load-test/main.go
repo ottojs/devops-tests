@@ -83,6 +83,15 @@ func main() {
 		if config.Redirects != nil {
 			fmt.Printf("  Max Redirects: %d\n", *config.Redirects)
 		}
+		if config.ConnectionPool != nil {
+			fmt.Println("  Connection Pool:")
+			if config.ConnectionPool.MaxConnections != nil {
+				fmt.Printf("    Max Connections: %d\n", *config.ConnectionPool.MaxConnections)
+			}
+			if config.ConnectionPool.MaxIdleConns != nil {
+				fmt.Printf("    Max Idle Connections: %d\n", *config.ConnectionPool.MaxIdleConns)
+			}
+		}
 		fmt.Printf("Stop this process (CTRL+C) within %d seconds to cancel\n", config.WarmupDelay)
 	}
 
@@ -98,22 +107,32 @@ func main() {
 	}
 	// Create request rotation targeter
 	targeter := createRotatingTargeter(requests)
-	attacker := vegeta.NewAttacker()
 
-	// Apply attacker options
+	// Build attacker options
+	var attackerOpts []func(*vegeta.Attacker)
+
 	if config.KeepAlive != nil {
-		vegeta.KeepAlive(*config.KeepAlive)(attacker)
+		attackerOpts = append(attackerOpts, vegeta.KeepAlive(*config.KeepAlive))
 	}
 
 	if config.HTTP2 != nil {
-		vegeta.HTTP2(*config.HTTP2)(attacker)
+		attackerOpts = append(attackerOpts, vegeta.HTTP2(*config.HTTP2))
 	}
 
 	if config.Redirects != nil {
-		vegeta.Redirects(*config.Redirects)(attacker)
+		attackerOpts = append(attackerOpts, vegeta.Redirects(*config.Redirects))
 	}
 
-	vegeta.Timeout(time.Duration(config.Timeout) * time.Second)(attacker)
+	// Apply connection pool settings
+	if config.ConnectionPool != nil {
+		if config.ConnectionPool.MaxConnections != nil {
+			attackerOpts = append(attackerOpts, vegeta.Connections(*config.ConnectionPool.MaxConnections))
+		}
+	}
+
+	attackerOpts = append(attackerOpts, vegeta.Timeout(time.Duration(config.Timeout)*time.Second))
+
+	attacker := vegeta.NewAttacker(attackerOpts...)
 
 	var metrics vegeta.Metrics
 	for res := range attacker.Attack(targeter, rate, duration, "Load Test") {

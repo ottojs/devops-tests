@@ -6,6 +6,10 @@
   "keepAlive": true,
   "http2": false,
   "redirects": 1,
+  "connectionPool": {
+    "maxConnections": 1000,
+    "maxIdleConns": 100
+  },
   "requests": [
     {
       "method": "GET",

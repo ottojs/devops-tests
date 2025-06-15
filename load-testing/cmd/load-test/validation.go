@@ -123,15 +123,35 @@ func validateLimits(config *LoadTestConfig) error {
 		return fmt.Errorf("redirects cannot be negative (got %d)", *config.Redirects)
 	}
 
+	// Check connection pool settings
+	if config.ConnectionPool != nil {
+		if config.ConnectionPool.MaxConnections != nil {
+			if *config.ConnectionPool.MaxConnections < 0 {
+				return fmt.Errorf("maxConnections cannot be negative (got %d)", *config.ConnectionPool.MaxConnections)
+			}
+			if *config.ConnectionPool.MaxConnections > maxConnectionPoolConns {
+				return fmt.Errorf("maxConnections %d exceeds maximum allowed (%d)", *config.ConnectionPool.MaxConnections, maxConnectionPoolConns)
+			}
+		}
+		if config.ConnectionPool.MaxIdleConns != nil {
+			if *config.ConnectionPool.MaxIdleConns < 0 {
+				return fmt.Errorf("maxIdleConns cannot be negative (got %d)", *config.ConnectionPool.MaxIdleConns)
+			}
+			if *config.ConnectionPool.MaxIdleConns > maxConnectionPoolConns {
+				return fmt.Errorf("maxIdleConns %d exceeds maximum allowed (%d)", *config.ConnectionPool.MaxIdleConns, maxConnectionPoolConns)
+			}
+		}
+	}
+
 	// Check maximum limits
-	if config.Duration > MAX_TEST_DURATION {
-		return fmt.Errorf("duration %ds exceeds maximum allowed (%ds)", config.Duration, MAX_TEST_DURATION)
+	if config.Duration > maxTestDuration {
+		return fmt.Errorf("duration %ds exceeds maximum allowed (%ds)", config.Duration, maxTestDuration)
 	}
-	if config.Rate > MAX_TEST_RATE {
-		return fmt.Errorf("rate %d exceeds maximum allowed (%d requests/sec)", config.Rate, MAX_TEST_RATE)
+	if config.Rate > maxTestRate {
+		return fmt.Errorf("rate %d exceeds maximum allowed (%d requests/sec)", config.Rate, maxTestRate)
 	}
-	if config.Timeout > MAX_TEST_TIMEOUT {
-		return fmt.Errorf("timeout %ds exceeds maximum allowed (%ds)", config.Timeout, MAX_TEST_TIMEOUT)
+	if config.Timeout > maxTestTimeout {
+		return fmt.Errorf("timeout %ds exceeds maximum allowed (%ds)", config.Timeout, maxTestTimeout)
 	}
 	return nil
 }

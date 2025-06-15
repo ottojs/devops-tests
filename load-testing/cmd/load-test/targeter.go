@@ -1,17 +1,26 @@
 package main
 
 import (
+	"sync"
 	"sync/atomic"
 
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
-// processedRequest holds pre-processed request data for better performance
+// sync.Pool for header maps
+var headerPool = sync.Pool{
+	New: func() interface{} {
+		return make(map[string][]string, 8)
+	},
+}
+
+// Pre-processed request data for better performance
 type processedRequest struct {
-	method  string
-	url     string
-	body    []byte
-	headers map[string][]string
+	method      string
+	url         string
+	body        []byte
+	headers     map[string][]string
+	headerCount int
 }
 
 // Creates a targeter that rotates through requests
@@ -21,10 +30,18 @@ func createRotatingTargeter(requests []RequestConfig) vegeta.Targeter {
 	// Pre-process requests to create header maps
 	processed := make([]processedRequest, len(requests))
 	for i, req := range requests {
+		// Calculate expected header count
+		headerCount := 1 // User-Agent is always present
+		if req.ContentType != "" {
+			headerCount++
+		}
+		headerCount += len(req.Headers)
+
 		pr := processedRequest{
-			method:  req.Method,
-			url:     req.URL,
-			headers: make(map[string][]string),
+			method:      req.Method,
+			url:         req.URL,
+			headers:     make(map[string][]string, headerCount),
+			headerCount: headerCount,
 		}
 
 		// Pre-convert body
@@ -54,11 +71,23 @@ func createRotatingTargeter(requests []RequestConfig) vegeta.Targeter {
 		tgt.URL = req.url
 		tgt.Body = req.body
 
-		// Clone the pre-built headers map
-		tgt.Header = make(map[string][]string, len(req.headers))
-		for k, v := range req.headers {
-			tgt.Header[k] = v
+		// Get a header map from the pool
+		headerMap := headerPool.Get().(map[string][]string)
+
+		// Clear the map for reuse
+		for k := range headerMap {
+			delete(headerMap, k)
 		}
+
+		// Copy headers into the pooled map
+		for k, v := range req.headers {
+			headerMap[k] = v
+		}
+
+		tgt.Header = headerMap
+
+		// Note: Vegeta will handle returning the map to the pool
+		// after the request is completed
 
 		return nil
 	}
