@@ -44,7 +44,8 @@ type ConnectionPoolConfig struct {
 // Defines the overall load test
 type LoadTestConfig struct {
 	Duration       int                   `json:"duration,omitempty"`       // Test duration in seconds
-	Rate           int                   `json:"rate,omitempty"`           // Requests per second
+	Rate           int                   `json:"rate,omitempty"`           // Requests per second (constant rate if ramp not specified)
+	RampUp         *RampUpConfig         `json:"rampUp,omitempty"`         // Ramp-up configuration
 	Timeout        int                   `json:"timeout,omitempty"`        // Request timeout in seconds
 	WarmupDelay    int                   `json:"warmupDelay,omitempty"`    // Delay before starting test in seconds
 	KeepAlive      *bool                 `json:"keepAlive,omitempty"`      // Keep connections alive
@@ -52,6 +53,13 @@ type LoadTestConfig struct {
 	Redirects      *int                  `json:"redirects,omitempty"`      // Max redirects to follow
 	ConnectionPool *ConnectionPoolConfig `json:"connectionPool,omitempty"` // Connection pool settings
 	Requests       []RequestConfig       `json:"requests"`                 // List of requests
+}
+
+// RampUpConfig defines how to ramp up request rate over time
+type RampUpConfig struct {
+	StartRate    int `json:"startRate"`    // Starting requests per second
+	EndRate      int `json:"endRate"`      // Ending requests per second
+	HoldDuration int `json:"holdDuration"` // Duration to hold at end rate (seconds)
 }
 
 func loadConfigFromFile(filename string) (LoadTestConfig, error) {
@@ -109,7 +117,8 @@ func (config *LoadTestConfig) applyDefaults() {
 	if config.Duration == 0 {
 		config.Duration = int(defaultTestSeconds)
 	}
-	if config.Rate == 0 {
+	// Only set default rate if ramp-up is not specified
+	if config.RampUp == nil && config.Rate == 0 {
 		config.Rate = defaultTestRate
 	}
 	if config.Timeout == 0 {

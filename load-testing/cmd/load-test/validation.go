@@ -113,6 +113,32 @@ func validateLimits(config *LoadTestConfig) error {
 	if config.Rate < 0 {
 		return fmt.Errorf("rate cannot be negative (got %d)", config.Rate)
 	}
+
+	// Validate ramp-up configuration
+	if config.RampUp != nil {
+		if config.RampUp.StartRate < 0 {
+			return fmt.Errorf("rampUp.startRate cannot be negative (got %d)", config.RampUp.StartRate)
+		}
+		if config.RampUp.EndRate < 0 {
+			return fmt.Errorf("rampUp.endRate cannot be negative (got %d)", config.RampUp.EndRate)
+		}
+		if config.RampUp.StartRate > maxTestRate {
+			return fmt.Errorf("rampUp.startRate %d exceeds maximum allowed (%d requests/sec)", config.RampUp.StartRate, maxTestRate)
+		}
+		if config.RampUp.EndRate > maxTestRate {
+			return fmt.Errorf("rampUp.endRate %d exceeds maximum allowed (%d requests/sec)", config.RampUp.EndRate, maxTestRate)
+		}
+		if config.RampUp.HoldDuration < 0 {
+			return fmt.Errorf("rampUp.holdDuration cannot be negative (got %d)", config.RampUp.HoldDuration)
+		}
+		if config.RampUp.HoldDuration >= config.Duration {
+			return fmt.Errorf("rampUp.holdDuration (%ds) must be less than total duration (%ds)", config.RampUp.HoldDuration, config.Duration)
+		}
+		// If ramp-up is specified, rate field should not be used
+		if config.Rate > 0 {
+			return fmt.Errorf("cannot specify both 'rate' and 'rampUp' - use one or the other")
+		}
+	}
 	if config.Timeout < 0 {
 		return fmt.Errorf("timeout cannot be negative (got %d)", config.Timeout)
 	}
