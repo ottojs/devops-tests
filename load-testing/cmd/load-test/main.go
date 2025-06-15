@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -16,6 +19,20 @@ const DEFAULT_TEST_SECONDS time.Duration = 10
 const DEFAULT_TEST_RATE int = 150
 const DEFAULT_TEST_TIMEOUT time.Duration = 5 // seconds
 const DEFAULT_WARMUP_DELAY int = 15          // seconds
+
+// Approved domains/IPs - hardcoded to prevent abuse
+// To add more domains, modify this list and recompile
+var APPROVED_DOMAINS = []string{
+	"localhost",
+	"127.0.0.1",
+}
+
+// Private IP ranges that are allowed
+var PRIVATE_IP_RANGES = []string{
+	"10.0.0.0/8",     // Class A private
+	"172.16.0.0/12",  // Class B private
+	"192.168.0.0/16", // Class C private
+}
 
 // Defines a single request
 type RequestConfig struct {
@@ -62,6 +79,19 @@ func main() {
 	requests = config.Requests
 	if len(requests) == 0 {
 		fmt.Println("Error: No requests found in config file")
+		os.Exit(1)
+	}
+
+	// Validate all request URLs are approved
+	if err := validateRequests(requests); err != nil {
+		fmt.Printf("Error: %v\n\n", err)
+		fmt.Println("Only the following targets are allowed:")
+		fmt.Println("  - localhost")
+		fmt.Println("  - 127.0.0.1")
+		fmt.Println("  - 10.0.0.0/8 (Class A private)")
+		fmt.Println("  - 172.16.0.0/12 (Class B private)")
+		fmt.Println("  - 192.168.0.0/16 (Class C private)")
+		fmt.Println("To add more domains, modify APPROVED_DOMAINS in the source code and recompile.")
 		os.Exit(1)
 	}
 
@@ -219,4 +249,52 @@ func loadConfigFromFile(filename string) (LoadTestConfig, error) {
 	}
 
 	return config, nil
+}
+
+func isApprovedTarget(targetURL string) error {
+	parsed, err := url.Parse(targetURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %v", err)
+	}
+
+	host := parsed.Hostname()
+	if host == "" {
+		return fmt.Errorf("no hostname in URL")
+	}
+
+	// Check against approved domains
+	for _, approved := range APPROVED_DOMAINS {
+		if strings.EqualFold(host, approved) {
+			return nil
+		}
+	}
+
+	// Check if it's an IP address
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fmt.Errorf("target '%s' is not in approved domains list", host)
+	}
+
+	// Check against private IP ranges
+	for _, cidr := range PRIVATE_IP_RANGES {
+		_, ipnet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		if ipnet.Contains(ip) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("target IP '%s' is not in approved private ranges", host)
+}
+
+// Check all requests have approved targets
+func validateRequests(requests []RequestConfig) error {
+	for i, req := range requests {
+		if err := isApprovedTarget(req.URL); err != nil {
+			return fmt.Errorf("request %d: %v", i+1, err)
+		}
+	}
+	return nil
 }
