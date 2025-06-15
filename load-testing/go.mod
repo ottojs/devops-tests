@@ -1,8 +1,8 @@
 module code.ottojs.org/tests/load-testing
 
-go 1.23
+go 1.24
 
-require github.com/tsenart/vegeta/v12 v12.11.3
+require github.com/tsenart/vegeta/v12 v12.12.0
 
 require (
 	github.com/influxdata/tdigest v0.0.1 // indirect
