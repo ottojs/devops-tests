@@ -1,18 +1,13 @@
 package main
 
 import (
-	"sync"
 	"sync/atomic"
 
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
-// sync.Pool for header maps
-var headerPool = sync.Pool{
-	New: func() interface{} {
-		return make(map[string][]string, 8)
-	},
-}
+// Removed sync.Pool - Vegeta manages its own header pooling internally
+// Using sync.Pool here without proper cleanup could cause memory leaks
 
 // Pre-processed request data for better performance
 type processedRequest struct {
@@ -71,23 +66,12 @@ func createRotatingTargeter(requests []RequestConfig) vegeta.Targeter {
 		tgt.URL = req.url
 		tgt.Body = req.body
 
-		// Get a header map from the pool
-		headerMap := headerPool.Get().(map[string][]string)
-
-		// Clear the map for reuse
-		for k := range headerMap {
-			delete(headerMap, k)
-		}
-
-		// Copy headers into the pooled map
+		// Create new header map for each request
+		// Vegeta handles its own pooling internally
+		tgt.Header = make(map[string][]string, req.headerCount)
 		for k, v := range req.headers {
-			headerMap[k] = v
+			tgt.Header[k] = v
 		}
-
-		tgt.Header = headerMap
-
-		// Note: Vegeta will handle returning the map to the pool
-		// after the request is completed
 
 		return nil
 	}

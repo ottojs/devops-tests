@@ -25,6 +25,7 @@ const maxTestRate = 10000                   // 10k requests/sec max
 const maxTestTimeout = 30                   // 30 seconds max
 const maxRequestBodySize = 10 * 1024 * 1024 // 10MB max request body size
 const maxConnectionPoolConns = 10000        // Max total connections allowed
+const maxConfigFileSize = 1 * 1024 * 1024   // 1MB max config file size
 
 // Defines a single request
 type RequestConfig struct {
@@ -71,24 +72,26 @@ func loadConfigFromFile(filename string) (LoadTestConfig, error) {
 		return LoadTestConfig{}, fmt.Errorf("config file must have a .json extension")
 	}
 
-	// Prevent directory traversal - reject paths with ".."
-	if strings.Contains(cleanPath, "..") {
-		return LoadTestConfig{}, fmt.Errorf("invalid file path: directory traversal detected")
+	// Security: Only allow files in current directory or subdirectories
+	// This prevents both directory traversal and access to system files
+	if filepath.IsAbs(cleanPath) || strings.Contains(cleanPath, "..") {
+		return LoadTestConfig{}, fmt.Errorf("config files must be in current directory or subdirectories")
 	}
 
-	// If it's an absolute path, ensure it's not accessing system directories
-	if filepath.IsAbs(cleanPath) {
-		// Define a list of restricted directories
-		restrictedPrefixes := []string{
-			"/etc", "/sys", "/proc", "/dev", "/var/log", "/root",
-			"/home", "/Users", "/tmp", "/private",
-		}
+	// Check file size before loading to prevent resource exhaustion
+	fileInfo, err := os.Stat(cleanPath)
+	if err != nil {
+		return LoadTestConfig{}, fmt.Errorf("unable to access config file: %w", err)
+	}
 
-		for _, prefix := range restrictedPrefixes {
-			if strings.HasPrefix(cleanPath, prefix) {
-				return LoadTestConfig{}, fmt.Errorf("access to system directories is not allowed")
-			}
-		}
+	if fileInfo.Size() > maxConfigFileSize {
+		return LoadTestConfig{}, fmt.Errorf("config file size (%d bytes) exceeds maximum allowed size (%d bytes)",
+			fileInfo.Size(), maxConfigFileSize)
+	}
+
+	// Check if it's a regular file (not a directory, symlink, etc.)
+	if !fileInfo.Mode().IsRegular() {
+		return LoadTestConfig{}, fmt.Errorf("config path must be a regular file")
 	}
 
 	data, err := os.ReadFile(cleanPath)
