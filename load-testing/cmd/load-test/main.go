@@ -55,9 +55,41 @@ type LoadTestConfig struct {
 	Requests    []RequestConfig `json:"requests"`              // List of requests
 }
 
+// JSON output structure
+type TestResults struct {
+	Config    LoadTestConfig `json:"config"`
+	Latencies LatencyResults `json:"latencies"`
+	Metrics   MetricResults  `json:"metrics"`
+	Errors    []string       `json:"errors,omitempty"`
+}
+
+type LatencyResults struct {
+	Total string `json:"total"`
+	Mean  string `json:"mean"`
+	Min   string `json:"min"`
+	Max   string `json:"max"`
+	P50   string `json:"p50"`
+	P90   string `json:"p90"`
+	P95   string `json:"p95"`
+	P99   string `json:"p99"`
+}
+
+type MetricResults struct {
+	Success     bool           `json:"success"`
+	Rate        float64        `json:"rate"`
+	Duration    string         `json:"duration"`
+	Wait        string         `json:"wait"`
+	Requests    uint64         `json:"requests"`
+	Throughput  float64        `json:"throughput"`
+	BytesIn     uint64         `json:"bytesIn"`
+	BytesOut    uint64         `json:"bytesOut"`
+	StatusCodes map[string]int `json:"statusCodes"`
+}
+
 func main() {
 	// Command line flags
 	configFile := flag.String("config", "", "Path to JSON config file")
+	jsonOutput := flag.Bool("json", false, "Output results in JSON format")
 	flag.Parse()
 
 	// Load configuration
@@ -110,32 +142,37 @@ func main() {
 	}
 
 	duration := time.Duration(config.Duration) * time.Second
-	fmt.Printf("Loaded %d requests\n", len(requests))
-	fmt.Println("Request types:")
-	for i, req := range requests {
-		fmt.Printf("  %d. %s %s", i+1, req.Method, req.URL)
-		if req.ContentType != "" {
-			fmt.Printf(" (Content-Type: %s)", req.ContentType)
+
+	// Only show startup messages if not in JSON mode
+	if !*jsonOutput {
+		fmt.Printf("Loaded %d requests\n", len(requests))
+		fmt.Println("Request types:")
+		for i, req := range requests {
+			fmt.Printf("  %d. %s %s", i+1, req.Method, req.URL)
+			fmt.Println()
 		}
-		fmt.Println()
+		fmt.Println("Test Configuration:")
+		fmt.Printf("  Duration: %s\n", duration)
+		fmt.Printf("  Rate: %d requests/sec\n", config.Rate)
+		fmt.Printf("  Timeout: %ds\n", config.Timeout)
+		fmt.Printf("  Warmup Delay: %ds\n", config.WarmupDelay)
+		if config.KeepAlive != nil {
+			fmt.Printf("  Keep-Alive: %v\n", *config.KeepAlive)
+		}
+		if config.HTTP2 != nil {
+			fmt.Printf("  HTTP/2: %v\n", *config.HTTP2)
+		}
+		if config.Redirects != nil {
+			fmt.Printf("  Max Redirects: %d\n", *config.Redirects)
+		}
+		fmt.Printf("Stop this process (CTRL+C) within %d seconds to cancel\n", config.WarmupDelay)
 	}
-	fmt.Printf("\nTest Configuration:\n")
-	fmt.Printf("  Duration: %s\n", duration)
-	fmt.Printf("  Rate: %d requests/sec\n", config.Rate)
-	fmt.Printf("  Timeout: %ds\n", config.Timeout)
-	fmt.Printf("  Warmup Delay: %ds\n", config.WarmupDelay)
-	if config.KeepAlive != nil {
-		fmt.Printf("  Keep-Alive: %v\n", *config.KeepAlive)
-	}
-	if config.HTTP2 != nil {
-		fmt.Printf("  HTTP/2: %v\n", *config.HTTP2)
-	}
-	if config.Redirects != nil {
-		fmt.Printf("  Max Redirects: %d\n", *config.Redirects)
-	}
-	fmt.Printf("\nStop this process (CTRL+C) within %d seconds to cancel\n", config.WarmupDelay)
+
 	time.Sleep(time.Duration(config.WarmupDelay) * time.Second)
-	fmt.Println("Attacking in progress...")
+
+	if !*jsonOutput {
+		fmt.Println("Attacking in progress...")
+	}
 
 	rate := vegeta.Rate{
 		Freq: config.Rate,
@@ -172,31 +209,71 @@ func main() {
 	}
 	metrics.Close()
 
-	fmt.Printf("===== Latencies =====\n")
-	fmt.Printf("Total: %s\n", metrics.Latencies.Total)
-	fmt.Printf("Average: %s\n", metrics.Latencies.Mean)
-	fmt.Printf("Min: %s\n", metrics.Latencies.Min)
-	fmt.Printf("Max: %s\n", metrics.Latencies.Max)
-	fmt.Printf("50th: %s\n", metrics.Latencies.P50)
-	fmt.Printf("90th: %s\n", metrics.Latencies.P90)
-	fmt.Printf("95th: %s\n", metrics.Latencies.P95)
-	fmt.Printf("99th: %s\n", metrics.Latencies.P99)
-	fmt.Printf("Bytes In: %d\n", metrics.BytesIn.Total)
-	fmt.Printf("Bytes Out: %d\n", metrics.BytesOut.Total)
-	fmt.Printf("===== Info =====\n")
-	fmt.Printf("Success: %t\n", metrics.Success == 1)
-	fmt.Printf("Rate: %f\n", metrics.Rate)
-	fmt.Printf("Duration: %s\n", metrics.Duration)
-	fmt.Printf("Wait: %s\n", metrics.Wait)
-	fmt.Printf("Total Requests: %d\n", metrics.Requests)
-	fmt.Printf("Throughput: %f\n", metrics.Throughput)
-	fmt.Printf("StatusCodes:\n")
-	for k, v := range metrics.StatusCodes {
-		fmt.Println(k, " => ", v)
+	if *jsonOutput {
+		// Output JSON format
+		results := TestResults{
+			Config: config,
+			Latencies: LatencyResults{
+				Total: metrics.Latencies.Total.String(),
+				Mean:  metrics.Latencies.Mean.String(),
+				Min:   metrics.Latencies.Min.String(),
+				Max:   metrics.Latencies.Max.String(),
+				P50:   metrics.Latencies.P50.String(),
+				P90:   metrics.Latencies.P90.String(),
+				P95:   metrics.Latencies.P95.String(),
+				P99:   metrics.Latencies.P99.String(),
+			},
+			Metrics: MetricResults{
+				Success:     metrics.Success == 1,
+				Rate:        metrics.Rate,
+				Duration:    metrics.Duration.String(),
+				Wait:        metrics.Wait.String(),
+				Requests:    metrics.Requests,
+				Throughput:  metrics.Throughput,
+				BytesIn:     metrics.BytesIn.Total,
+				BytesOut:    metrics.BytesOut.Total,
+				StatusCodes: metrics.StatusCodes,
+			},
+		}
+
+		// Add errors if any
+		if len(metrics.Errors) > 0 {
+			results.Errors = metrics.Errors
+		}
+
+		output, err := json.MarshalIndent(results, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error encoding JSON: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(output))
+	} else {
+		// Output plain format (existing)
+		fmt.Printf("===== Latencies =====\n")
+		fmt.Printf("Total: %s\n", metrics.Latencies.Total)
+		fmt.Printf("Average: %s\n", metrics.Latencies.Mean)
+		fmt.Printf("Min: %s\n", metrics.Latencies.Min)
+		fmt.Printf("Max: %s\n", metrics.Latencies.Max)
+		fmt.Printf("50th: %s\n", metrics.Latencies.P50)
+		fmt.Printf("90th: %s\n", metrics.Latencies.P90)
+		fmt.Printf("95th: %s\n", metrics.Latencies.P95)
+		fmt.Printf("99th: %s\n", metrics.Latencies.P99)
+		fmt.Printf("Bytes In: %d\n", metrics.BytesIn.Total)
+		fmt.Printf("Bytes Out: %d\n", metrics.BytesOut.Total)
+		fmt.Printf("===== Info =====\n")
+		fmt.Printf("Success: %t\n", metrics.Success == 1)
+		fmt.Printf("Rate: %f\n", metrics.Rate)
+		fmt.Printf("Duration: %s\n", metrics.Duration)
+		fmt.Printf("Wait: %s\n", metrics.Wait)
+		fmt.Printf("Total Requests: %d\n", metrics.Requests)
+		fmt.Printf("Throughput: %f\n", metrics.Throughput)
+		fmt.Printf("StatusCodes:\n")
+		for k, v := range metrics.StatusCodes {
+			fmt.Println(k, " => ", v)
+		}
+		fmt.Printf("Errors: %+v\n", metrics.Errors)
+		fmt.Printf("\n\n\n")
 	}
-	fmt.Printf("Errors: %+v\n", metrics.Errors)
-	fmt.Printf("\n\n\n")
-	//fmt.Printf("\n %+v", metrics)
 
 }
 
