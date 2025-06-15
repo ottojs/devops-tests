@@ -1,49 +1,140 @@
 package main
 
 import (
+	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
+	"sync/atomic"
 	"time"
 
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
-// Settings
-const TEST_URI string = "http://localhost/"
-const TEST_SECONDS time.Duration = 10
-const TEST_RATE int = 150
-const TEST_TIMEOUT time.Duration = 5 // seconds
+// Default Settings
+const DEFAULT_TEST_SECONDS time.Duration = 10
+const DEFAULT_TEST_RATE int = 150
+const DEFAULT_TEST_TIMEOUT time.Duration = 5 // seconds
+const DEFAULT_WARMUP_DELAY int = 15          // seconds
+
+// Defines a single request
+type RequestConfig struct {
+	Method      string            `json:"method"`
+	URL         string            `json:"url"`
+	Body        string            `json:"body,omitempty"`
+	ContentType string            `json:"contentType,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+}
+
+// Defines the overall load test
+type LoadTestConfig struct {
+	Duration    int             `json:"duration,omitempty"`    // Test duration in seconds
+	Rate        int             `json:"rate,omitempty"`        // Requests per second
+	Timeout     int             `json:"timeout,omitempty"`     // Request timeout in seconds
+	WarmupDelay int             `json:"warmupDelay,omitempty"` // Delay before starting test in seconds
+	KeepAlive   *bool           `json:"keepAlive,omitempty"`   // Keep connections alive
+	HTTP2       *bool           `json:"http2,omitempty"`       // Use HTTP/2
+	Redirects   *int            `json:"redirects,omitempty"`   // Max redirects to follow
+	Requests    []RequestConfig `json:"requests"`              // List of requests
+}
 
 func main() {
-	// ######################
-	// ##### Safe Guard #####
-	if TEST_URI == "http://localhost/" {
-		fmt.Println("Not performing. Please edit the code to change the URI or remove this block")
+	// Command line flags
+	configFile := flag.String("config", "", "Path to JSON config file")
+	flag.Parse()
+
+	// Load configuration
+	var config LoadTestConfig
+	var requests []RequestConfig
+
+	if *configFile == "" {
+		fmt.Println("Error: No config file provided. Use -config flag to specify a configuration file.")
+		flag.Usage()
 		os.Exit(1)
 	}
-	// ######################
-	duration := TEST_SECONDS * time.Second
-	fmt.Println("Targeting", TEST_URI, "with", TEST_RATE, "connections for", duration, "seconds...")
-	fmt.Println("Stop this process (CTRL+C) within 15 seconds to cancel")
-	time.Sleep(15 * time.Second)
+
+	loadedConfig, err := loadConfigFromFile(*configFile)
+	if err != nil {
+		fmt.Printf("Error loading config file: %v\n", err)
+		os.Exit(1)
+	}
+	config = loadedConfig
+	requests = config.Requests
+	if len(requests) == 0 {
+		fmt.Println("Error: No requests found in config file")
+		os.Exit(1)
+	}
+
+	// Apply defaults for missing values
+	if config.Duration == 0 {
+		config.Duration = int(DEFAULT_TEST_SECONDS)
+	}
+	if config.Rate == 0 {
+		config.Rate = DEFAULT_TEST_RATE
+	}
+	if config.Timeout == 0 {
+		config.Timeout = int(DEFAULT_TEST_TIMEOUT)
+	}
+	if config.WarmupDelay == 0 {
+		config.WarmupDelay = DEFAULT_WARMUP_DELAY
+	}
+
+	duration := time.Duration(config.Duration) * time.Second
+	fmt.Printf("Loaded %d requests\n", len(requests))
+	fmt.Println("Request types:")
+	for i, req := range requests {
+		fmt.Printf("  %d. %s %s", i+1, req.Method, req.URL)
+		if req.ContentType != "" {
+			fmt.Printf(" (Content-Type: %s)", req.ContentType)
+		}
+		fmt.Println()
+	}
+	fmt.Printf("\nTest Configuration:\n")
+	fmt.Printf("  Duration: %s\n", duration)
+	fmt.Printf("  Rate: %d requests/sec\n", config.Rate)
+	fmt.Printf("  Timeout: %ds\n", config.Timeout)
+	fmt.Printf("  Warmup Delay: %ds\n", config.WarmupDelay)
+	if config.KeepAlive != nil {
+		fmt.Printf("  Keep-Alive: %v\n", *config.KeepAlive)
+	}
+	if config.HTTP2 != nil {
+		fmt.Printf("  HTTP/2: %v\n", *config.HTTP2)
+	}
+	if config.Redirects != nil {
+		fmt.Printf("  Max Redirects: %d\n", *config.Redirects)
+	}
+	fmt.Printf("\nStop this process (CTRL+C) within %d seconds to cancel\n", config.WarmupDelay)
+	time.Sleep(time.Duration(config.WarmupDelay) * time.Second)
 	fmt.Println("Attacking in progress...")
 
 	rate := vegeta.Rate{
-		Freq: TEST_RATE,
+		Freq: config.Rate,
 		Per:  time.Second,
 	}
-	// You can test POST requests with:
-	// Method: "POST",
-	// Body: []byte(`{"email":"user@example.com"}`),
-	targeter := vegeta.NewStaticTargeter(vegeta.Target{
-		Method: "GET",
-		URL:    TEST_URI,
-	})
+	// Create request rotation targeter
+	targeter := createRotatingTargeter(requests)
 	attacker := vegeta.NewAttacker()
-	vegeta.KeepAlive(false)(attacker)
-	vegeta.HTTP2(false)(attacker)
-	vegeta.Redirects(0)(attacker)
-	vegeta.Timeout(TEST_TIMEOUT * time.Second)(attacker)
+
+	// Apply attacker options
+	if config.KeepAlive != nil {
+		vegeta.KeepAlive(*config.KeepAlive)(attacker)
+	} else {
+		vegeta.KeepAlive(false)(attacker)
+	}
+
+	if config.HTTP2 != nil {
+		vegeta.HTTP2(*config.HTTP2)(attacker)
+	} else {
+		vegeta.HTTP2(false)(attacker)
+	}
+
+	if config.Redirects != nil {
+		vegeta.Redirects(*config.Redirects)(attacker)
+	} else {
+		vegeta.Redirects(0)(attacker)
+	}
+
+	vegeta.Timeout(time.Duration(config.Timeout) * time.Second)(attacker)
 
 	var metrics vegeta.Metrics
 	for res := range attacker.Attack(targeter, rate, duration, "Load Test") {
@@ -77,4 +168,51 @@ func main() {
 	fmt.Printf("\n\n\n")
 	//fmt.Printf("\n %+v", metrics)
 
+}
+
+// Rotates through the requests
+func createRotatingTargeter(requests []RequestConfig) vegeta.Targeter {
+	var counter uint64
+
+	return func(tgt *vegeta.Target) error {
+		// Rotate through requests using atomic counter
+		idx := int(atomic.AddUint64(&counter, 1)-1) % len(requests)
+		req := requests[idx]
+
+		// Set basic fields
+		tgt.Method = req.Method
+		tgt.URL = req.URL
+
+		// Set body if present
+		if req.Body != "" {
+			tgt.Body = []byte(req.Body)
+		}
+
+		// Set headers
+		tgt.Header = make(map[string][]string)
+		if req.ContentType != "" {
+			tgt.Header["Content-Type"] = []string{req.ContentType}
+		}
+
+		// Add custom headers if any
+		for k, v := range req.Headers {
+			tgt.Header[k] = []string{v}
+		}
+
+		return nil
+	}
+}
+
+func loadConfigFromFile(filename string) (LoadTestConfig, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return LoadTestConfig{}, err
+	}
+
+	var config LoadTestConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return LoadTestConfig{}, err
+	}
+
+	return config, nil
 }

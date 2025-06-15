@@ -1,0 +1,24 @@
+{
+  "duration": 30,
+  "rate": 200,
+  "timeout": 10,
+  "warmupDelay": 5,
+  "keepAlive": true,
+  "http2": false,
+  "redirects": 1,
+  "requests": [
+    {
+      "method": "GET",
+      "url": "http://localhost:3000/test/path"
+    },
+    {
+      "method": "POST",
+      "url": "http://localhost:3000/test/body",
+      "body": "{\"name\":\"Test User\",\"email\":\"test@example.com\"}",
+      "contentType": "application/json",
+      "headers": {
+        "Authorization": "Bearer mytoken"
+      }
+    }
+  ]
+}
