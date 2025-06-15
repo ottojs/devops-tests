@@ -185,20 +185,14 @@ func main() {
 	// Apply attacker options
 	if config.KeepAlive != nil {
 		vegeta.KeepAlive(*config.KeepAlive)(attacker)
-	} else {
-		vegeta.KeepAlive(false)(attacker)
 	}
 
 	if config.HTTP2 != nil {
 		vegeta.HTTP2(*config.HTTP2)(attacker)
-	} else {
-		vegeta.HTTP2(false)(attacker)
 	}
 
 	if config.Redirects != nil {
 		vegeta.Redirects(*config.Redirects)(attacker)
-	} else {
-		vegeta.Redirects(0)(attacker)
 	}
 
 	vegeta.Timeout(time.Duration(config.Timeout) * time.Second)(attacker)
@@ -281,33 +275,53 @@ func main() {
 func createRotatingTargeter(requests []RequestConfig) vegeta.Targeter {
 	var counter uint64
 
+	// Pre-process requests to create header maps
+	type processedRequest struct {
+		method  string
+		url     string
+		body    []byte
+		headers map[string][]string
+	}
+
+	processed := make([]processedRequest, len(requests))
+	for i, req := range requests {
+		pr := processedRequest{
+			method:  req.Method,
+			url:     req.URL,
+			headers: make(map[string][]string),
+		}
+
+		// Pre-convert body
+		if req.Body != "" {
+			pr.body = []byte(req.Body)
+		}
+
+		// Pre-build headers
+		pr.headers["User-Agent"] = []string{"otto-load-test"}
+		if req.ContentType != "" {
+			pr.headers["Content-Type"] = []string{req.ContentType}
+		}
+		for k, v := range req.Headers {
+			pr.headers[k] = []string{v}
+		}
+
+		processed[i] = pr
+	}
+
 	return func(tgt *vegeta.Target) error {
 		// Rotate through requests using atomic counter
-		idx := int(atomic.AddUint64(&counter, 1)-1) % len(requests)
-		req := requests[idx]
+		idx := int(atomic.AddUint64(&counter, 1)-1) % len(processed)
+		req := processed[idx]
 
-		// Set basic fields
-		tgt.Method = req.Method
-		tgt.URL = req.URL
+		// Set fields from pre-processed data
+		tgt.Method = req.method
+		tgt.URL = req.url
+		tgt.Body = req.body
 
-		// Set body if present
-		if req.Body != "" {
-			tgt.Body = []byte(req.Body)
-		}
-
-		// Set headers
-		tgt.Header = make(map[string][]string)
-
-		// Always set User-Agent
-		tgt.Header["User-Agent"] = []string{"otto-load-test"}
-
-		if req.ContentType != "" {
-			tgt.Header["Content-Type"] = []string{req.ContentType}
-		}
-
-		// Add custom headers if any (this could override User-Agent if specified)
-		for k, v := range req.Headers {
-			tgt.Header[k] = []string{v}
+		// Clone the pre-built headers map
+		tgt.Header = make(map[string][]string, len(req.headers))
+		for k, v := range req.headers {
+			tgt.Header[k] = v
 		}
 
 		return nil
