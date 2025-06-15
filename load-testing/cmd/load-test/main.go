@@ -20,6 +20,11 @@ const DEFAULT_TEST_RATE int = 150
 const DEFAULT_TEST_TIMEOUT time.Duration = 5 // seconds
 const DEFAULT_WARMUP_DELAY int = 15          // seconds
 
+// Safety limits to prevent DoS
+const MAX_TEST_DURATION = 1800 // 30 minutes max
+const MAX_TEST_RATE = 10000    // 10k requests/sec max
+const MAX_TEST_TIMEOUT = 30    // 30 seconds max
+
 // Approved domains/IPs - hardcoded to prevent abuse
 // To add more domains, modify this list and recompile
 var APPROVED_DOMAINS = []string{
@@ -139,6 +144,20 @@ func main() {
 	}
 	if config.WarmupDelay == 0 {
 		config.WarmupDelay = DEFAULT_WARMUP_DELAY
+	}
+
+	// Validate limits to prevent DoS
+	if config.Duration > MAX_TEST_DURATION {
+		fmt.Printf("Error: Duration %ds exceeds maximum allowed (%ds)\n", config.Duration, MAX_TEST_DURATION)
+		os.Exit(1)
+	}
+	if config.Rate > MAX_TEST_RATE {
+		fmt.Printf("Error: Rate %d exceeds maximum allowed (%d requests/sec)\n", config.Rate, MAX_TEST_RATE)
+		os.Exit(1)
+	}
+	if config.Timeout > MAX_TEST_TIMEOUT {
+		fmt.Printf("Error: Timeout %ds exceeds maximum allowed (%ds)\n", config.Timeout, MAX_TEST_TIMEOUT)
+		os.Exit(1)
 	}
 
 	duration := time.Duration(config.Duration) * time.Second
